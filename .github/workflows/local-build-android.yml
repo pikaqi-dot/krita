@@ -125,9 +125,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ci/android
-          key: local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
+          key: local-build-android-sdk-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
           restore-keys: |
-            local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+            local-build-android-sdk-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
 
       - name: Restore Python / dependency cache
         uses: actions/cache@v4
@@ -135,9 +135,9 @@ jobs:
           path: |
             ${{ github.workspace }}/.ci/work/PythonEnv
             ${{ github.workspace }}/.ci/work/envdir
-          key: local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
+          key: local-build-android-deps-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
           restore-keys: |
-            local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+            local-build-android-deps-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
 
       - name: Build APK
         working-directory: build-tools/local-build
