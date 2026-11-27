@@ -190,6 +190,8 @@ build_and_install() {
         # 属已知问题，降低并发重跑（增量编译，只补缺的部分）通常即可通过。
         warn "首次编译失败（退出码 $rc）"
         warn "若是 'moc_xxx.cpp: file not found'，属于 Qt5 AUTOMOC 并发竞态，重跑即可"
+        warn "若是 'msgfmt: error while loading shared libraries'，说明宿主缺运行库，"
+        warn "  Ubuntu/Debian: sudo apt-get install -y gettext libxml2 libglib2.0-0"
         warn "以较低并发 -j$retry_jobs 重试一次..."
         if [[ "$generator" == "ninja" ]]; then
             run ninja -j "$retry_jobs" install

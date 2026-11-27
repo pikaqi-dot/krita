@@ -1713,6 +1713,9 @@ bash scripts/fix-line-endings.sh --check --strict
   它**复用本次 checkout 作为 Krita 源码**（符号链接挂到 `$SRCDIR/krita`），
   所以打出来的 APK 就是当前提交，而不是另克隆的上游 master；
   SDK/NDK 与 venv/依赖下载分别走 `actions/cache`。
+  宿主侧还需要 `gettext` 与 `libxml2`：KF5I18n 的 pofiles 目标会调用 `_install/bin/msgfmt`，
+  它是宿主二进制，缺 `libxml2.so.2` 时会报 `msgfmt: error while loading shared libraries`
+  （工作流里已装；本地/自建 runner 请参照安装）。
   SDK/NDK/venv 一律装在 `$GITHUB_WORKSPACE/.ci/`：job 级 `env` 覆盖 runner 镜像预置的
   `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `ANDROID_NDK_ROOT`，脚本自身也会忽略"指向不存在目录"
   的 `ANDROID_NDK_ROOT`（否则会出现镜像里那份 NDK 被删、安装却算在别处的经典误报）。
