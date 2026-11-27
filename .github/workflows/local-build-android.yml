@@ -70,7 +70,10 @@ jobs:
     # installed by 10-setup-sdk.sh; the scripts ignore it while it does not
     # exist yet and fall back to <ANDROID_ROOT>/sdk/ndk/<version>.
     env:
+      # Belt and braces: ANDROID_ROOT plus the scripts' own override
+      # (KRITA_ANDROID_ROOT), so nothing inherited can point us elsewhere.
       ANDROID_ROOT: ${{ github.workspace }}/.ci/android
+      KRITA_ANDROID_ROOT: ${{ github.workspace }}/.ci/android
       ANDROID_NDK_ROOT: ${{ github.workspace }}/.ci/android/sdk/ndk/27.3.13750724
       WORKDIR: ${{ github.workspace }}/.ci/work
       SRCDIR: ${{ github.workspace }}/.ci/src

@@ -49,6 +49,9 @@
 #ANDROID_ROOT=C:/android
 # 复用 Android Studio 自带的 SDK（末尾不要带 /sdk）：
 #ANDROID_ROOT=C:/Users/ZHAOL/AppData/Local/Android
+# 强制覆盖根目录（优先级最高，忽略环境里已有的 ANDROID_ROOT / ANDROID_HOME）：
+# CI 里用它压过 runner 镜像预置的 Android SDK 路径
+#KRITA_ANDROID_ROOT=/home/ZHAOL/android
 
 # 缓存与 Python venv 的根目录
 #WORKDIR=/home/ZHAOL/persistent

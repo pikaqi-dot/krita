@@ -58,6 +58,11 @@ resolve_defaults() {
     : "${ANDROID_EXTRA_PACKAGES:=}"
 
     # --- 目录 ---
+    # KRITA_ANDROID_ROOT 显式优先级最高：CI（或任何被宿主环境污染的场景）里
+    # ANDROID_ROOT 可能已被别的工具设为系统路径，这里允许强制指定本流程的根目录。
+    if [[ -n "${KRITA_ANDROID_ROOT:-}" ]]; then
+        ANDROID_ROOT="$KRITA_ANDROID_ROOT"
+    fi
     : "${ANDROID_ROOT:=$HOME/android}"               # SDK/NDK/cmdline-tools 根目录
     : "${WORKDIR:=$HOME/persistent}"                 # 缓存与 venv 根目录
     : "${SRCDIR:=$WORKDIR/sources}"                  # 源码根目录

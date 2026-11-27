@@ -184,9 +184,35 @@ ensure_ndk() {
 
     if [[ -f "$KDECI_ANDROID_NDK_ROOT/source.properties" ]]; then
         ok "已安装 NDK: $KDECI_ANDROID_NDK_ROOT"
-    else
-        die "sdkmanager 安装后仍找不到 NDK: $KDECI_ANDROID_NDK_ROOT"
+        return 0
     fi
+
+    # 兜底：环境里残留的 ANDROID_* 可能让安装落到别处。
+    # 在 SDK/ndk 与 ANDROID_ROOT 下找一找真正落地的 NDK，找到就采用。
+    local found=""
+    found="$(find "$KDECI_ANDROID_SDK_ROOT/ndk" "$ANDROID_ROOT" -maxdepth 3 \
+        -name source.properties 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$found" ]]; then
+        local ndk_dir
+        ndk_dir="$(dirname -- "$found")"
+        warn "NDK 不在预期路径，改用已找到的: $ndk_dir"
+        KDECI_ANDROID_NDK_ROOT="$ndk_dir"
+        ANDROID_NDK_ROOT="$ndk_dir"
+        export KDECI_ANDROID_NDK_ROOT ANDROID_NDK_ROOT
+        ok "已安装 NDK: $KDECI_ANDROID_NDK_ROOT"
+        return 0
+    fi
+
+    hr
+    err "sdkmanager 安装后仍找不到 NDK: $KDECI_ANDROID_NDK_ROOT"
+    printf '  ANDROID_ROOT           : %s\n' "$ANDROID_ROOT"
+    printf '  ANDROID_NDK_ROOT       : %s\n' "${ANDROID_NDK_ROOT:-<unset>}"
+    printf '  KDECI_ANDROID_SDK_ROOT : %s\n' "$KDECI_ANDROID_SDK_ROOT"
+    printf '  sdkmanager             : %s\n' "$(command -v sdkmanager 2>/dev/null || echo '<not in PATH>')"
+    printf '  SDK/ndk 内容           : %s\n' "$(ls -d "$KDECI_ANDROID_SDK_ROOT"/ndk/* 2>/dev/null || echo '<空>')"
+    printf '  提示：CI 上请确认 ANDROID_ROOT / ANDROID_NDK_ROOT 没有被 runner 镜像带偏，\n'
+    printf '        或显式设置 KRITA_ANDROID_ROOT 强制指定根目录。\n'
+    die "NDK 安装失败: $KDECI_ANDROID_NDK_ROOT"
 }
 
 accept_licenses() {
