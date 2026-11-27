@@ -81,6 +81,22 @@ preflight() {
         hr
         die "依赖未安装"
     fi
+
+    # 宿主工具自检：_install/bin/msgfmt 是"宿主二进制"，KF5I18n 的 pofiles
+    # 目标会直接调用它。缺 libxml2 之类的宿主运行库时，make 会在 1% 处报
+    #   msgfmt: error while loading shared libraries: libxml2.so.2
+    # 这里提前发现并给出 apt 命令，避免浪费一次长编译。
+    if [[ -x "$KRITA_INSTALL_DIR/bin/msgfmt" ]] &&
+        ! "$KRITA_INSTALL_DIR/bin/msgfmt" --version >/dev/null 2>&1; then
+        warn "依赖里的 msgfmt 无法运行（多为宿主缺运行库），KF5I18n 的 pofiles 会失败"
+        warn "  Ubuntu/Debian: sudo apt-get install -y gettext libxml2 libglib2.0-0"
+        if have_cmd ldd; then
+            local missing_libs
+            missing_libs="$(ldd "$KRITA_INSTALL_DIR/bin/msgfmt" 2>/dev/null |
+                awk '/not found/ {print $1}' | sort -u | tr '\n' ' ')"
+            [[ -n "$missing_libs" ]] && warn "  缺失库: $missing_libs"
+        fi
+    fi
 }
 
 configure() {
