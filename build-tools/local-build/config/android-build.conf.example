@@ -1,0 +1,122 @@
+# =============================================================================
+#  Krita for Android 构建配置示例
+#
+#  用法：
+#     cp config/android-build.conf.example config/android-build.conf
+#     然后按需修改 config/android-build.conf（该文件已被 .gitignore 忽略）
+#
+#  也可以不做任何修改 —— 所有变量都有内置默认值。
+#  注意：这里使用纯 shell 语法（会被 source），不要写 : 或 = 之外的花样。
+# =============================================================================
+
+# ------------------------------ 目标平台 -------------------------------------
+# 目标 ABI：arm64-v8a（默认，真机）| armeabi-v7a（老 32 位机）| x86_64（模拟器/CI）
+# 官方文档与 KDE CI 示例用 x86_64，本项目面向真机所以默认 arm64-v8a。
+# 修改方式：改这一行，或用环境变量 ANDROID_ABI=arm64-v8a ./build-android.sh all
+# 注意：切换 ABI 会重新获取对应架构的依赖并全量重编（_install/_build 都会重建）。
+#ANDROID_ABI=arm64-v8a
+
+# Krita 支持的最低 API 级别（官方文档：android-23）
+#ANDROID_API=23
+
+# 编译用的 SDK 平台（官方文档：platforms;android-33）
+#ANDROID_PLATFORM=android-33
+
+# NDK 版本
+#   官方文档写的是 r22b，但 **CI 预编译的 Android 依赖是用 NDK r27d 构建的**
+#   （实测 _install 里有 3422 处 android-ndk-r27d 引用）。用 r22b 链接会因 libc++
+#   ABI 不匹配报 "undefined symbol: vtable for std::__ndk1::basic_ostringstream"，
+#   所以这里默认用 r27d 对应的 sdkmanager 包版本 27.3.13750724。
+#   需要回到文档的旧流程时就写 r22b（会走官方 zip 下载）。
+#ANDROID_NDK_VERSION=27.3.13750724
+# 也可以直接指定 NDK 目录（优先级最高）
+#ANDROID_NDK_ROOT=/home/<用户名>/android/android-ndk-r27d
+
+# build-tools 版本（空格分隔，会逐个安装）
+#ANDROID_BUILD_TOOLS="30.0.3 34.0.0"
+
+# 额外安装的 SDK 包（空格分隔，例如 "ndk;22.1.7171670"）
+# 本项目不安装 emulator / system-images，只产出 APK
+#ANDROID_EXTRA_PACKAGES=""
+
+# ------------------------------ 目录布局 -------------------------------------
+# Android SDK / NDK / cmdline-tools 的根目录（尽量使用无空格路径）
+# 脚本期望的布局： $ANDROID_ROOT/sdk、$ANDROID_ROOT/android-ndk-r22b、
+#                  $ANDROID_ROOT/cmdline-tools
+# Linux / WSL2 示例：
+#ANDROID_ROOT=/home/ZHAOL/android
+# Windows Git Bash 示例（仅用于 SDK 管理，完整构建请走 WSL2）：
+#ANDROID_ROOT=C:/android
+# 复用 Android Studio 自带的 SDK（末尾不要带 /sdk）：
+#ANDROID_ROOT=C:/Users/ZHAOL/AppData/Local/Android
+
+# 缓存与 Python venv 的根目录
+#WORKDIR=/home/ZHAOL/persistent
+
+# 源码目录（krita 会克隆到 $SRCDIR/krita）
+#SRCDIR=/home/ZHAOL/persistent/sources
+
+# 依赖包与缓存目录
+#ENVDIR=/home/ZHAOL/persistent/envdir
+
+# Python 虚拟环境目录
+#VENVDIR=/home/ZHAOL/persistent/PythonEnv
+
+# ------------------------------ 仓库 -----------------------------------------
+#KRITA_BRANCH=master
+#KRITA_REPO_URL=https://invent.kde.org/graphics/krita.git
+#KRITA_DEPS_MGMT_URL=https://invent.kde.org/packaging/krita-deps-management.git
+#KRITA_CI_UTILS_URL=https://invent.kde.org/packaging/krita-ci-utilities.git
+
+# ------------------------------ 构建参数 -------------------------------------
+# CMAKE_BUILD_TYPE：RelWithDebInfo（官方推荐）/ Debug / Release
+#KRITA_CMAKE_BUILD_TYPE=RelWithDebInfo
+
+# 并行任务数（默认 CPU 核心数）
+#KRITA_JOB_COUNT=8
+
+# make install 的目标目录；留空 = $SRCDIR/krita/_install
+# 官方要求：Android 上必须与依赖位于同一目录，APK 打包脚本无法跨目录查找
+#KRITA_INSTALL_PREFIX=
+
+# 1 = 完整获取/构建依赖（去掉 run-ci-build.py 的 --only-env，耗时很长）
+#KRITA_FETCH_FULL_DEPS=0
+
+# ------------------------------ 产物导出 -------------------------------------
+# 打包完成后，APK/AAB 会先复制到 <项目根>/dist/
+# 1 = 额外复制一份到 Windows 桌面（默认开启；桌面目录自动探测）
+#KRITA_COPY_TO_DESKTOP=1
+# 手动指定桌面/导出目录（留空 = 自动探测；可写多个，空格分隔）
+#KRITA_DESKTOP_DIR=
+#KRITA_EXPORT_DIRS=""
+
+# ------------------------------ Docker（可选）--------------------------------
+# 默认不走 Docker；只有执行 `./build-android.sh docker` 时才会用容器。
+# 镜像（默认本地构建：docker/Dockerfile → krita-android-build:local）
+#KRITA_DOCKER_IMAGE=krita-android-build:local
+# 追加给 docker run 的参数（空格分隔），例如限制内存/CPU
+#KRITA_DOCKER_EXTRA=""
+
+# ------------------------------ 部署 / 调试 ----------------------------------
+# Gradle 任务（70-dev-rebuild.sh 使用）
+#KRITA_GRADLE_TASK=installDebug
+# 应用包名与主 Activity（用于 adb am start）
+#KRITA_APP_ID=org.krita.debug
+#KRITA_MAIN_ACTIVITY=org.krita.android.MainActivity
+
+# sdkmanager 是 Java 程序，不读取 http_proxy 环境变量，这里可显式指定代理；
+# 留空时会自动从 http_proxy / HTTP_PROXY 推断（WSL 装好代理后即可自动生效）
+# 格式: HOST:PORT
+#ANDROID_SDKMANAGER_PROXY=172.24.176.1:7890
+
+# ------------------------------ 下载地址 -------------------------------------
+# 留空 = 按平台自动推断（linux/windows/macos）
+#ANDROID_CMDLINE_TOOLS_URL=
+#ANDROID_NDK_URL=
+
+# ------------------------------ 其它 -----------------------------------------
+# 磁盘剩余空间告警阈值（GB）
+#KRITA_MIN_FREE_GB=30
+
+# WSL2 发行版名称（99-wsl-build.sh 使用；留空 = 第一个已安装发行版）
+#WSL_DISTRO=Ubuntu

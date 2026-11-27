@@ -1,0 +1,46 @@
+name: local-build-lint
+
+# Guard rails for the local build helper scripts in build-tools/local-build/.
+# Nothing is compiled here -- this only checks parsing, encodings and docs:
+#   * PowerShell 5.1 needs UTF-8 **with BOM** (BOM-less => GBK, Chinese breaks)
+#   * *.bat must stay pure ASCII, *.sh / *.md must stay LF
+#   * a stray diff marker or unbalanced quote breaks a whole script
+#   * README tables must not drift away from the real files
+#
+# Trigger: manual only - Actions -> "local-build-lint" -> Run workflow.
+# Nothing runs on push / pull_request. To get the old "run on every change"
+# behaviour back, uncomment the push / pull_request block below.
+
+on:
+  workflow_dispatch:
+  # push:
+  #   paths:
+  #     - 'build-tools/local-build/**'
+  #     - '.github/workflows/local-build-*.yml'
+  # pull_request:
+  #   paths:
+  #     - 'build-tools/local-build/**'
+  #     - '.github/workflows/local-build-*.yml'
+
+defaults:
+  run:
+    working-directory: build-tools/local-build
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash syntax (bash -n on every *.sh)
+        run: bash scripts/check-syntax.sh
+
+      - name: line endings (sh/md = LF, bat/ps1 = CRLF)
+        run: bash scripts/fix-line-endings.sh --check --strict
+
+      - name: Windows scripts (BOM + CRLF + parse)
+        shell: pwsh
+        run: ./scripts/check-powershell.ps1
+
+      - name: docs consistency (README vs real scripts)
+        run: bash scripts/check-docs.sh

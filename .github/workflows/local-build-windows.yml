@@ -1,0 +1,154 @@
+name: local-build-windows
+
+# Native Windows build of Krita (llvm-mingw + Ninja + CMake 3.31) -> krita.exe.
+#
+# The build logic lives in build-tools/local-build/windows/ and is independent of
+# the Android workflow (local-build-android.yml).
+#
+# Cost: a cold run downloads the toolchain plus ~100 prebuilt dependencies and
+# compiles the whole of Krita - expect roughly 1-3 hours and ~15 GB of disk.
+# Re-runs restore the toolchain / dependency cache and are much faster.
+#
+# Trigger: manual only - Actions -> "local-build-windows" -> Run workflow.
+# Nothing runs on push / pull_request; uncomment the block below if you ever
+# want a tag push to start it automatically.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label (a larger or self-hosted Windows runner is faster)'
+        required: false
+        default: windows-latest
+      jobs:
+        description: 'Parallel ninja jobs (0 = number of CPU cores)'
+        required: false
+        default: '2'
+      source_ref:
+        description: 'Branch or tag of the Krita sources (empty = ref of this run)'
+        required: false
+        default: ''
+      repo_url:
+        description: 'Krita git URL (empty = this repository)'
+        required: false
+        default: ''
+  # push:
+  #   tags:
+  #     - 'windows-build-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-build-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    name: Krita (Windows x86_64)
+    runs-on: ${{ inputs.runner || 'windows-latest' }}
+    timeout-minutes: 360
+    env:
+      KRITA_WIN_NOPAUSE: '1'
+      KRITA_ROOT: C:\krita
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Runner info
+        run: |
+          Get-CimInstance Win32_ComputerSystem |
+            Select-Object NumberOfLogicalProcessors,
+                          @{ n = 'RAM_GB'; e = { [math]::Round($_.TotalPhysicalMemory / 1GB, 1) } } |
+            Format-List
+          Get-PSDrive C | Select-Object Used, Free
+          git --version
+
+      - name: Restore toolchain / dependency cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\krita\deps
+            C:\krita\dev\cache
+            C:\krita\dev\krita-deps-management
+            C:\krita\dev\PythonEnv
+          key: local-build-win-${{ runner.os }}-${{ hashFiles('build-tools/local-build/windows/build-krita-windows.ps1') }}
+          restore-keys: |
+            local-build-win-${{ runner.os }}-
+
+      # check -> toolchain -> env -> sources -> configure -> build -> deploy
+      # Run in a child powershell.exe so the step returns the script's real exit code.
+      - name: Build Krita
+        run: |
+          $ref = '${{ inputs.source_ref }}'
+          if (-not $ref) { $ref = $env:GITHUB_REF_NAME }
+
+          $repo = '${{ inputs.repo_url }}'
+          if (-not $repo) { $repo = "https://github.com/${{ github.repository }}.git" }
+
+          $jobs = '${{ inputs.jobs }}'
+          if (-not $jobs) { $jobs = '0' }
+
+          $argv = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'build-tools\local-build\windows\build-krita-windows.ps1',
+            '-Step', 'all',
+            '-Root', 'C:\krita',
+            '-InstallPython',
+            '-Shallow',
+            '-Jobs', $jobs,
+            '-SourceRef', $ref,
+            '-RepoUrl', $repo
+          )
+          Write-Host ('powershell ' + ($argv -join ' '))
+          & powershell.exe @argv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify krita.exe
+        run: |
+          $exe = 'C:\krita\dev\_install\bin\krita.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "missing $exe" }
+          Get-Item -LiteralPath $exe |
+            Select-Object FullName, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
+          Get-ChildItem -LiteralPath 'C:\krita\dev\_install' | Select-Object Name
+
+      - name: Package (zip)
+        run: |
+          $zip = "krita-windows-x86_64-${{ github.sha }}.zip"
+          7z a -tzip -mx=3 $zip 'C:\krita\dev\_install\*' | Out-Null
+          Get-Item -LiteralPath $zip |
+            Select-Object Name, @{ n = 'MB'; e = { [math]::Round($_.Length / 1MB, 1) } }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: krita-windows-x86_64-${{ github.sha }}-${{ github.run_attempt }}
+          path: krita-windows-x86_64-*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-logs-${{ github.sha }}-${{ github.run_attempt }}
+          path: C:\krita\dev\logs\**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          $exe = 'C:\krita\dev\_install\bin\krita.exe'
+          if (Test-Path -LiteralPath $exe) {
+            $f = Get-Item -LiteralPath $exe
+            "krita.exe: {0:N1} MB -- {1}" -f ($f.Length / 1MB), $f.FullName |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            'krita.exe was not produced (see the logs artifact)' |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }

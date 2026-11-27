@@ -1,0 +1,161 @@
+# =============================================================================
+#  Krita Android / Windows 构建脚本仓库 —— .gitignore
+#
+#  原则：
+#    * 只提交"脚本 + 文档 + 示例配置"
+#    * 不提交任何个人路径、构建产物、下载缓存、日志
+# =============================================================================
+
+# ------------------------------ 本地配置（含个人路径）------------------------
+/config/android-build.conf
+/config/*.local
+*.local
+
+# ------------------------------ 日志 -----------------------------------------
+# logs/ 里的 *.sh（wsl-probe.sh / wsl-apt-install.sh / wsl-jdk-install.sh /
+# wsl-run-pipeline.sh …）和 *.log 都是**运行时生成**的：
+#   * *.sh 由 scripts/lib/wsl.sh 里的 wsl_run_script / wsl_run_pipeline 用 heredoc 写出
+#   * *.log 由 scripts/run.sh（.bat 调用的包装器）用 tee 写出
+# 真正的源码在 scripts/lib/wsl.sh 与 scripts/run.sh，所以这里整体忽略。
+logs/
+*.log
+*.log.*
+*.part
+*.tmp
+*.tmp.*
+*.temp
+*.bak
+*.orig
+*.rej
+
+# ------------------------------ Android 构建产物 -----------------------------
+# 打包输出（APK / AAB）与中间目录
+/dist/
+/build/
+/out/
+/_packaging/
+_packaging/
+*.apk
+*.aab
+*.idsig
+*.keystore
+debug.keystore
+
+# ------------------------------ 构建目录 / 安装目录 ---------------------------
+# 这些通常位于 $SRCDIR/krita 下，但万一有人在仓库内构建也要挡住
+/_build/
+/_install/
+# Linux 桌面版（deb 目标）的构建目录，与 Android 的 _build 分开
+/_build_linux/
+_build_linux/
+/_install.*/
+/_staging/
+/_build.*/
+/build-*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+.ninja_deps
+.ninja_log
+*.ninja
+*.ninja_deps
+*.ninja_log
+
+# Krita 的 ABI / 编译器标记（每台机器生成的）
+.krita-abi
+.krita-compiler
+# 增量构建标记（内容 = 源码 HEAD + 配置指纹，每台机器/每次构建生成）
+.krita-build-stamp
+.krita-package-stamp
+.krita-linux-stamp
+.krita-win-config-stamp
+.krita-win-build-stamp
+.krita-win-env-stamp
+
+# 直接生成在仓库根目录的环境脚本（setup-env.py 的产物）
+/env.bat
+/env_deactivate.bat
+/env
+/env_deactivate
+/base-env
+/.kde-ci.yml
+
+# ------------------------------ Windows 原生构建（若把工作区放进仓库）-------
+/krita/
+/krita-deps-management/
+/PythonEnv/
+/PythonEnv-*/
+/b_krita/
+/b_*/
+
+# ------------------------------ Python ---------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENVDIR/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ------------------------------ Docker ---------------------------------------
+# 本仓库的 docker 构建日志在 logs/ 里，已被忽略；
+# 这里再挡住常见的本地覆盖文件
+docker-compose.override.yml
+*.dockerignore.local
+
+# ------------------------------ 临时诊断脚本 ---------------------------------
+# 开发期临时脚本（scripts/_diag-*.sh、logs/_*.sh 等），不要提交
+scripts/_diag-*.sh
+scripts/_tmp-*.sh
+logs/_*.sh
+logs/_*.cmd
+scripts/*.tmp
+
+# ------------------------------ 编辑器 / IDE ---------------------------------
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+*~
+.cache/
+.clangd/
+compile_flags.txt
+
+# ------------------------------ 操作系统 -------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ------------------------------ 其他 -----------------------------------------
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tar.xz
+*.rar
+!docker/*.tar
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+*.lib
+*.exp
+
+# 注意：*.exe / *.dll 等的忽略只影响仓库内；Windows 构建产物在 C:\krita-dev，
+# 本来就不在仓库里。

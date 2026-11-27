@@ -1,0 +1,199 @@
+name: local-build-android
+
+# Krita for Android (APK / AAB) built with the scripts in build-tools/local-build.
+#
+# The pipeline runs steps 1-6 of build-android.sh (check -> SDK/NDK -> sources ->
+# deps -> compile -> package) inside the checked-out tree: the checkout itself is
+# reused as the Krita source, so the APK is built from the exact commit of the run.
+#
+# Cost: the official way to build Krita for Android needs Linux plus a lot of
+# disk (SDK/NDK, KDE prebuilt dependencies, the build tree). A hosted
+# ubuntu-latest runner is tight even after freeing space, so prefer a larger or
+# self-hosted runner (input "runner") for real builds. Caches cover the SDK/NDK
+# and the Python/dependency downloads.
+#
+# Trigger: manual only - Actions -> "local-build-android" -> Run workflow.
+# Nothing runs on push / pull_request; uncomment the block below if you ever
+# want a tag push to start it automatically.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner label (a larger or self-hosted Linux runner is recommended)'
+        required: false
+        default: ubuntu-latest
+      abi:
+        description: 'Target ABI'
+        type: choice
+        options:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86_64
+        default: arm64-v8a
+      package:
+        description: 'Gradle package type'
+        type: choice
+        options:
+          - debug
+          - release
+          - nightly
+        default: debug
+      aab:
+        description: 'Also build an Android App Bundle (AAB)'
+        type: boolean
+        default: false
+      jobs:
+        description: 'Parallel compile jobs (empty = number of cores)'
+        required: false
+        default: ''
+  # push:
+  #   tags:
+  #     - 'android-build-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-build-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    name: Krita APK
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    timeout-minutes: 480
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /opt/az /usr/local/share/boost
+          sudo apt-get clean
+          df -h /
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build pkg-config unzip ccache
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Layout expected by the scripts:
+      #   $SRCDIR/krita  -> the checkout (symlinked, so no second clone)
+      #   $WORKDIR       -> venv, dependency cache, CI work dir
+      #   $ANDROID_ROOT  -> SDK / NDK / downloads
+      - name: Prepare workspace layout
+        run: |
+          {
+            echo "ANDROID_ROOT=$HOME/krita-ci/android"
+            echo "WORKDIR=$HOME/krita-ci/work"
+            echo "SRCDIR=$HOME/krita-ci/src"
+            echo "KRITA_COPY_TO_DESKTOP=0"
+            echo "KRITA_MIN_FREE_GB=15"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$HOME/krita-ci/src"
+          ln -sfn "$GITHUB_WORKSPACE" "$HOME/krita-ci/src/krita"
+          ls -ld "$HOME/krita-ci/src/krita"
+          java -version
+          cmake --version | head -n 1
+          ninja --version
+          python --version
+
+      - name: Restore Android SDK / NDK cache
+        uses: actions/cache@v4
+        with:
+          path: ~/krita-ci/android
+          key: local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
+          restore-keys: |
+            local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+
+      - name: Restore Python / dependency cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/krita-ci/work/PythonEnv
+            ~/krita-ci/work/envdir
+          key: local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
+          restore-keys: |
+            local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+
+      - name: Build APK
+        working-directory: build-tools/local-build
+        env:
+          ANDROID_ABI: ${{ inputs.abi || 'arm64-v8a' }}
+          PACKAGE_KIND: ${{ inputs.package || 'debug' }}
+          WITH_AAB: ${{ inputs.aab || false }}
+          JOB_COUNT: ${{ inputs.jobs }}
+        run: |
+          args=(all)
+          case "$PACKAGE_KIND" in
+            release) args+=(--release) ;;
+            nightly) args+=(--nightly) ;;
+          esac
+          if [[ "$WITH_AAB" == "true" ]]; then
+            args+=(--aab)
+          fi
+          if [[ -n "$JOB_COUNT" ]]; then
+            args+=(--jobs "$JOB_COUNT")
+          else
+            args+=(--jobs "$(nproc)")
+          fi
+          echo "== ./build-android.sh ${args[*]}"
+          ./build-android.sh "${args[@]}"
+
+      - name: Collect artifacts
+        run: |
+          ls -lh build-tools/local-build/dist
+          shopt -s nullglob
+          files=(build-tools/local-build/dist/*.apk build-tools/local-build/dist/*.aab)
+          if (( ${#files[@]} == 0 )); then
+            echo "::error::no APK/AAB in build-tools/local-build/dist"
+            exit 1
+          fi
+          printf '%s\n' "${files[@]}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: krita-android-${{ inputs.abi || 'arm64-v8a' }}-${{ inputs.package || 'debug' }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            build-tools/local-build/dist/*.apk
+            build-tools/local-build/dist/*.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-logs-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            build-tools/local-build/logs/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Krita for Android"
+            echo ""
+            echo "- ABI: \`${{ inputs.abi || 'arm64-v8a' }}\`"
+            echo "- Package: \`${{ inputs.package || 'debug' }}\`"
+            echo ""
+            echo '```'
+            ls -lh build-tools/local-build/dist 2>/dev/null || echo 'dist/ missing'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
