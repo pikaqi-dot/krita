@@ -83,6 +83,9 @@ jobs:
       ANDROID_NDK: ${{ github.workspace }}/../krita-ci/android/sdk/ndk/27.3.13750724
       ANDROID_NDK_HOME: ${{ github.workspace }}/../krita-ci/android/sdk/ndk/27.3.13750724
       WORKDIR: ${{ github.workspace }}/../krita-ci/work
+      # Gradle's home (dependency cache + init script with mirrors) also lives
+      # outside the checkout, next to the other CI state.
+      GRADLE_USER_HOME: ${{ github.workspace }}/../krita-ci/work/gradle-home
       KRITA_COPY_TO_DESKTOP: '0'
       KRITA_MIN_FREE_GB: '15'
     steps:
@@ -189,6 +192,49 @@ jobs:
           restore-keys: |
             local-build-android-deps-v3-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
 
+      - name: Restore Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../krita-ci/work/gradle-home
+          key: local-build-android-gradle-v1-${{ runner.os }}-${{ hashFiles('build-tools/local-build/scripts/50-build-package.sh') }}
+          restore-keys: |
+            local-build-android-gradle-v1-${{ runner.os }}-
+
+      # Maven Central rate-limits the shared IPs of GitHub-hosted runners and
+      # answers "429 Too Many Requests", which aborts androiddeployqt's Gradle
+      # configure phase ("Could not resolve all artifacts for configuration
+      # 'classpath'"). An init script makes Gradle try mirrors of Central first
+      # and keeps google() for the Android Gradle Plugin artifacts; the build
+      # step additionally retries when the log shows a 429.
+      - name: Configure Gradle mirrors
+        run: |
+          mkdir -p "$GRADLE_USER_HOME"
+          cat > "$GRADLE_USER_HOME/init.gradle" <<'EOF'
+          // repo.maven.apache.org returns 429 for shared CI IPs; try mirrors first.
+          def centralMirrors = [
+              'https://maven-central.storage-download.googleapis.com/maven2',
+              'https://repo1.maven.org/maven2',
+          ]
+
+          def addMirrors = { RepositoryHandler repos ->
+              centralMirrors.each { mirrorUrl ->
+                  repos.maven { it.url = mirrorUrl }
+              }
+              repos.google()
+              repos.mavenCentral()
+          }
+
+          allprojects { project ->
+              project.buildscript.repositories { addMirrors(delegate) }
+              project.repositories { addMirrors(delegate) }
+          }
+
+          settingsEvaluated { settings ->
+              settings.pluginManagement.repositories { addMirrors(delegate) }
+          }
+          EOF
+          cat "$GRADLE_USER_HOME/init.gradle"
+
       - name: Build APK
         working-directory: build-tools/local-build
         env:
@@ -212,8 +258,32 @@ jobs:
           fi
           # run.sh tees the complete output to logs/<timestamp>-all.log while still
           # streaming it to the job console, and exposes the real exit code.
+          #
+          # The package step finishes with androiddeployqt + Gradle, which downloads
+          # the Android Gradle Plugin from Maven Central. Shared runner IPs get
+          # rate limited (HTTP 429) there, so retry the whole run - it is
+          # incremental, so a retry only redoes the packaging - but only when the
+          # log actually mentions 429 (a real compile error must fail fast).
+          attempt=1
+          max_attempts=3
           echo "== scripts/run.sh ${args[*]}"
-          bash scripts/run.sh "${args[@]}"
+          while true; do
+            if bash scripts/run.sh "${args[@]}"; then
+              break
+            fi
+            if (( attempt >= max_attempts )); then
+              echo "::error::build failed ${attempt} times (see the log artifacts)"
+              exit 1
+            fi
+            if [[ -f logs/latest.log ]] && grep -q 'status code 429' logs/latest.log; then
+              wait_seconds=$(( attempt * 60 ))
+              echo "::warning::Maven Central rate limited the download (HTTP 429); retrying in ${wait_seconds}s (attempt $(( attempt + 1 ))/${max_attempts})"
+              sleep "$wait_seconds"
+              attempt=$(( attempt + 1 ))
+              continue
+            fi
+            exit 1
+          done
 
       # Snapshot everything that helps reading a failure: versions, env, git state,
       # CMake logs. Never fails the job; the files are uploaded with the log artifact.

@@ -1578,6 +1578,34 @@ git -C <你的源码>/krita checkout -- .kde-ci.yml
 > 那是 `run-ci-build.py` 内部 `if arguments.dry_run: arguments.skip_dependencies_fetch = True`
 > 造成的，**真实运行时不会出现**，不是错误。
 
+### 37. 打包阶段 Gradle 报 `Received status code 429 from server: Too Many Requests`
+
+**现象**：编译 100% 通过、`androiddeployqt` 也启动了，但 Gradle configure 阶段整片失败：
+
+```text
+A problem occurred configuring root project 'krita_build_apk'.
+> Could not resolve all artifacts for configuration 'classpath'.
+   > Could not resolve org.jetbrains.kotlin:kotlin-stdlib:2.1.20.
+      > Could not GET '.../kotlin-stdlib-2.1.20.pom'.
+         Received status code 429 from server: Too Many Requests
+```
+
+**原因**：Maven Central（`repo.maven.apache.org`）对 GitHub 托管 runner 的共享出口 IP 限流。
+一次 configure 要并发拉几十个 Android Gradle Plugin 依赖，很容易全撞上 429。
+**与源码、NDK、SDK 都无关**，重跑一次往往就好了。
+
+**处理**（[`.github/workflows/local-build-android.yml`](../../.github/workflows/local-build-android.yml:1) 已内置）：
+
+1. 写一份 `$GRADLE_USER_HOME/init.gradle`，把 Central 的镜像排在前面
+   （`maven-central.storage-download.googleapis.com`、`repo1.maven.org`），
+   并保留 `google()` 供 AGP 使用；
+2. 打包失败且日志里出现 `status code 429` 时**自动重试**（等 60s / 120s，最多 3 次）；
+   其它错误（真正的编译/链接错误）不重试，立刻失败；
+3. `$GRADLE_USER_HOME` 指向 `krita-ci/work/gradle-home` 并走 `actions/cache`，
+   Gradle 发行版与已下好的依赖下次直接命中缓存。
+
+**本地遇到**：多跑一次即可（Gradle 缓存会保留已下载的部分）；或改走代理 / 离线仓库。
+
 ---
 
 ## 八、环境变量的等价手工命令
