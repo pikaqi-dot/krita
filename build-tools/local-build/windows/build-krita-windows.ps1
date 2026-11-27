@@ -350,6 +350,53 @@ function Write-Log {
     }
 }
 
+# ---------------------------------------------------------------------------
+# 磁盘剩余空间监视（默认每 30 秒一行，控制台 + 本次日志）
+#   由 disk-monitor.ps1 以子进程方式输出，主流程结束/失败时结束它。
+#   KRITA_DISK_MONITOR=0            关闭
+#   KRITA_DISK_MONITOR_INTERVAL=N   间隔秒数（默认 30）
+# ---------------------------------------------------------------------------
+$Script:DiskMonitor = $null
+
+function Start-DiskMonitor {
+    if ($env:KRITA_DISK_MONITOR -eq '0') { return }
+    $monitor = Join-PathSafe $PSScriptRoot 'disk-monitor.ps1'
+    if (-not (Test-Path -LiteralPath $monitor)) { return }
+
+    $interval = 30
+    if ($env:KRITA_DISK_MONITOR_INTERVAL) {
+        $parsed = 0
+        if ([int]::TryParse($env:KRITA_DISK_MONITOR_INTERVAL, [ref]$parsed) -and $parsed -gt 0) {
+            $interval = $parsed
+        }
+    }
+    $drive = $Workspace.Substring(0, 2)
+    $argList = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', $monitor,
+        '-LogFile', $Script:LogFile,
+        '-Drive', $drive,
+        '-IntervalSeconds', "$interval"
+    )
+    try {
+        $Script:DiskMonitor = Start-Process -FilePath 'powershell.exe' `
+            -ArgumentList $argList -NoNewWindow -PassThru -ErrorAction Stop
+        Write-Log ("磁盘监视已启动：每 {0}s 打印 {1} 剩余空间" -f $interval, $drive) 'INFO'
+    } catch {
+        Write-Log ("磁盘监视未启动（忽略）: " + $_.Exception.Message) 'WARN'
+    }
+}
+
+function Stop-DiskMonitor {
+    if (-not $Script:DiskMonitor) { return }
+    try {
+        if (-not $Script:DiskMonitor.HasExited) {
+            Stop-Process -Id $Script:DiskMonitor.Id -Force -ErrorAction Stop
+        }
+    } catch { }
+    $Script:DiskMonitor = $null
+}
+
 # 把本次日志复制为 logs\latest.log（在最后一行写入之后调用）
 function Update-LatestLog {
     if (-not $Script:LogFile -or -not $Script:LatestLog) { return }
@@ -1723,6 +1770,7 @@ function Main {
     $env:PYTHONUNBUFFERED = '1'
     Write-Hr
 
+    Start-DiskMonitor
     $total = [System.Diagnostics.Stopwatch]::StartNew()
     switch ($Step) {
         'info'      { Invoke-Timed 'info' { Show-Info } }
@@ -1751,6 +1799,7 @@ function Main {
         }
     }
     $total.Stop()
+    Stop-DiskMonitor
     if ($Step -ne 'info' -and $Step -ne 'logs') {
         Write-Log ("总用时 {0:N1}s" -f $total.Elapsed.TotalSeconds) 'INFO'
     }
@@ -1762,6 +1811,7 @@ try {
     Main
     exit 0
 } catch {
+    Stop-DiskMonitor
     Write-Log ("失败: " + $_.Exception.Message) 'ERR'
     Write-Log ("日志: " + $Script:LogFile) 'ERR'
     Update-LatestLog

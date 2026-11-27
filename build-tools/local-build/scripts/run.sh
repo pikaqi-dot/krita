@@ -45,6 +45,52 @@ safe="$(printf '%s' "$cmd" | tr -c 'A-Za-z0-9._-' '_')"
 LOG="$LOG_DIR/${stamp}-${safe}.log"
 
 # ---------------------------------------------------------------------------
+# 磁盘剩余空间监视（默认每 30 秒一行）
+#   * 第一行在构建开始前打印（基线），之后每 30 秒一行
+#   * 同时写控制台与同一份构建日志，所以 CI 工件里也有
+#   KRITA_DISK_MONITOR=0            关闭
+#   KRITA_DISK_MONITOR_INTERVAL=N   间隔秒数（默认 30）
+#   KRITA_DISK_MONITOR_PATH=DIR     监视哪个目录所在的卷（默认项目根）
+# ---------------------------------------------------------------------------
+disk_free_line() {
+    local path="$1" out
+    out="$(df -hP "$path" 2>/dev/null |
+        awk 'NR==2 {printf "%s total, %s used, %s free (%s used)", $2, $3, $4, $5}')"
+    [[ -n "$out" ]] || out='df unavailable'
+    printf '%s' "$out"
+}
+
+disk_monitor_line() {
+    local path="$1"
+    printf '[disk] %s  %s  [%s]\n' "$(date '+%H:%M:%S')" "$(disk_free_line "$path")" "$path"
+}
+
+start_disk_monitor() {
+    [[ "${KRITA_DISK_MONITOR:-1}" == "0" ]] && return 0
+    local interval="${KRITA_DISK_MONITOR_INTERVAL:-30}"
+    local path="${KRITA_DISK_MONITOR_PATH:-$PROJECT_ROOT}"
+
+    # 基线（构建开始前）
+    disk_monitor_line "$path" | tee -a "$LOG"
+
+    (
+        while :; do
+            sleep "$interval"
+            disk_monitor_line "$path"
+            disk_monitor_line "$path" >>"$LOG"
+        done
+    ) &
+    DISK_MONITOR_PID=$!
+}
+
+stop_disk_monitor() {
+    [[ -n "${DISK_MONITOR_PID:-}" ]] || return 0
+    kill "$DISK_MONITOR_PID" 2>/dev/null
+    wait "$DISK_MONITOR_PID" 2>/dev/null
+    DISK_MONITOR_PID=""
+}
+
+# ---------------------------------------------------------------------------
 # 日志头（同时输出到控制台与日志文件）
 # ---------------------------------------------------------------------------
 {
@@ -60,10 +106,12 @@ LOG="$LOG_DIR/${stamp}-${safe}.log"
 } | tee -a "$LOG"
 
 # ---------------------------------------------------------------------------
-# 执行（实时输出 + 写入日志）
+# 执行（实时输出 + 写入日志；期间每 30 秒打印一次磁盘剩余空间）
 # ---------------------------------------------------------------------------
+start_disk_monitor
 bash "$PROJECT_ROOT/build-android.sh" "$@" 2>&1 | tee -a "$LOG"
 rc="${PIPESTATUS[0]}"
+stop_disk_monitor
 
 if (( rc == 0 )); then
     printf '\n# ------------------------------------------------------------\n# 退出码: 0（成功）\n' | tee -a "$LOG"

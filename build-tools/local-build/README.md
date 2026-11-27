@@ -174,7 +174,7 @@ build-tools/local-build/                # ← 本目录（位于 Krita 源码仓
 │   │   ├── common.sh                   # 日志 / 路径转换 / 下载 / 解压
 │   │   ├── android-env.sh              # 配置解析、变量导出、Android 工具封装
 │   │   └── wsl.sh                      # WSL2 探测 / 安装 / 网络修复
-│   ├── run.sh                          # .bat 的日志包装器（实时输出 + 落盘 + 退出码）
+│   ├── run.sh                          # .bat 的日志包装器（实时输出 + 落盘 + 退出码 + 每 30s 磁盘）
 │   ├── 00-check-prereqs.sh             # 环境前置检查
 │   ├── 10-setup-sdk.sh                 # cmdline-tools + NDK + SDK 组件
 │   ├── 20-fetch-sources.sh             # 克隆源码与仓库
@@ -199,6 +199,7 @@ build-tools/local-build/                # ← 本目录（位于 Krita 源码仓
 │   └── fix-line-endings.sh             # 统一行尾（*.sh=LF，*.bat/*.ps1=CRLF）
 ├── windows/                            # Windows 原生构建（生成 krita.exe）
 │   ├── build-krita-windows.ps1         # 主脚本（-Step check/toolchain/env/sources/build/run/logs）
+│   ├── disk-monitor.ps1                # 构建期间每 30 秒打印磁盘剩余空间
 │   ├── krita-build.bat                 # 双击包装
 │   └── README.md                       # 参数、FAQ、实测记录
 ├── logs/                               # 运行期日志（已忽略；latest.log 为最近一次）
@@ -1724,6 +1725,7 @@ bash scripts/fix-line-endings.sh --check --strict
 | Windows 完整日志       | `build-krita-windows.ps1` 自身同时写控制台与 `C:\krita\dev\logs\win-build-<时间戳>.log`，并维护 `latest.log`                                                              |
 | 工件                 | 两个工作流都在 `always()` 时上传 `*-build-logs-*`（保留 7 天）——失败与成功都留档                                                                                                  |
 | 运行摘要               | 失败时把第一条 `[err]` / `[ERR]` 用 `::error::` 注解，并把日志最后 150–200 行贴进 Summary，无需下载工件即可定位                                                                     |
+| 磁盘监控               | 构建期间**每 30 秒**打印一行 `[disk] HH:MM:SS  <大小> total, <已用> used, <剩余> free (<百分比> used)`：Android 写进同一份 `-all.log`，Windows 写进 `win-build-*.log`（构建开始前先打一行基线）；`KRITA_DISK_MONITOR=0` 关闭，`KRITA_DISK_MONITOR_INTERVAL=N` 改间隔 |
 
 ---
 
