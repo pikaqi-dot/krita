@@ -1698,7 +1698,7 @@ bash scripts/fix-line-endings.sh --check --strict
 | Windows | `jobs`      | `ninja -jN`，默认 `2`（runner 核少，别开太大）                                  |
 | Windows | `source_ref` | 要构建的 Krita 分支 / tag；留空 = 本次运行的分支                                    |
 | Windows | `repo_url`  | 源码仓库地址；留空 = 本仓库（fork 会自动用它，而不是 invent.kde.org）                      |
-| Android | `runner`    | 默认 `ubuntu-latest`；**Krita Android 需要 ~30 GB 磁盘，建议用更大或自托管的 Linux runner** |
+| Android | `runner`    | 默认 `ubuntu-24.04`（固定版本，避免新镜像回归）；**Krita Android 需要 ~30 GB 磁盘，建议用更大或自托管的 Linux runner** |
 | Android | `abi`       | `arm64-v8a`（默认，真机）/ `armeabi-v7a` / `x86_64`（模拟器）                   |
 | Android | `package`   | `debug`（默认，可直接装机）/ `release` / `nightly`                            |
 | Android | `aab`       | 同时生成 AAB                                                           |

@@ -7,10 +7,10 @@ name: local-build-android
 # reused as the Krita source, so the APK is built from the exact commit of the run.
 #
 # Cost: the official way to build Krita for Android needs Linux plus a lot of
-# disk (SDK/NDK, KDE prebuilt dependencies, the build tree). A hosted
-# ubuntu-latest runner is tight even after freeing space, so prefer a larger or
-# self-hosted runner (input "runner") for real builds. Caches cover the SDK/NDK
-# and the Python/dependency downloads.
+# disk (SDK/NDK, KDE prebuilt dependencies, the build tree). A hosted runner is
+# tight even after freeing space, so prefer a larger or self-hosted runner
+# (input "runner") for real builds. Caches cover the SDK/NDK and the
+# Python/dependency downloads.
 #
 # Trigger: manual only - Actions -> "local-build-android" -> Run workflow.
 # Nothing runs on push / pull_request; uncomment the block below if you ever
@@ -22,7 +22,7 @@ on:
       runner:
         description: 'Runner label (a larger or self-hosted Linux runner is recommended)'
         required: false
-        default: ubuntu-latest
+        default: ubuntu-24.04
       abi:
         description: 'Target ABI'
         type: choice
@@ -61,7 +61,10 @@ concurrency:
 jobs:
   apk:
     name: Krita APK
-    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
+    # Pinned to 24.04 on purpose: it is the image the build is validated on and
+    # avoids surprises from brand-new "ubuntu-latest" releases. Override via the
+    # "runner" input when you need something else.
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 480
     # Job-level env wins over whatever the runner image ships (it preinstalls an
     # Android SDK/NDK and exports ANDROID_HOME / ANDROID_SDK_ROOT /
