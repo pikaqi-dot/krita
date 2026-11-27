@@ -1710,14 +1710,21 @@ bash scripts/fix-line-endings.sh --check --strict
   产物在 `C:\krita\dev\_install`，压成 `krita-windows-x86_64-<sha>.zip` 上传；
   `C:\krita\deps`（工具链）、`dev\cache`、`dev\krita-deps-management`、`dev\PythonEnv` 走缓存。
 - **Android**：等价于在 `build-tools/local-build` 里执行 `./build-android.sh all --jobs N`；
-  它**复用本次 checkout 作为 Krita 源码**（符号链接挂到 `$SRCDIR/krita`），
+  它**复用本次 checkout 作为 Krita 源码**：把 `$SRCDIR` 指到 checkout 的**父目录**，
+  于是 `$SRCDIR/krita` 就是本次 checkout 本身 —— 不复制、也**不建"指回工作区"的符号链接**。
+  （早期版本把 `$SRCDIR/krita` 做成指向工作区的符号链接，CMake 的 KDE 安装目录逻辑
+  会把它拆成相对路径并反复拼接，configure 阶段就出现
+  `.../.ci/src/krita/.ci/src/krita/...` 这种递归路径，`CMAKE_INSTALL_PREFIX` 因此指向
+  不存在的目录，最后报 `set_property DIRECTORY scope ... not found` 与
+  `Could NOT find KF5 (missing: WidgetsAddons Completion)`。）
   所以打出来的 APK 就是当前提交，而不是另克隆的上游 master；
   SDK/NDK 与 venv/依赖下载分别走 `actions/cache`。
   宿主侧还需要 `gettext` 与 `libxml2`：KF5I18n 的 pofiles 目标会调用 `_install/bin/msgfmt`，
   它是宿主二进制，缺 `libxml2.so.2` 时会报 `msgfmt: error while loading shared libraries`
   （工作流里已装；本地/自建 runner 请参照安装）。
-  SDK/NDK/venv 一律装在 `$GITHUB_WORKSPACE/.ci/`：job 级 `env` 覆盖 runner 镜像预置的
-  `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `ANDROID_NDK_ROOT`，脚本自身也会忽略"指向不存在目录"
+  SDK/NDK/venv 一律装在**工作区之外**的兄弟目录 `<workspace 的父目录>/krita-ci/`：
+  job 级 `env` 覆盖 runner 镜像预置的 `ANDROID_HOME` / `ANDROID_SDK_ROOT` /
+  `ANDROID_NDK_ROOT` / `ANDROID_NDK` / `ANDROID_NDK_HOME`，脚本自身也会忽略"指向不存在目录"
   的 `ANDROID_NDK_ROOT`（否则会出现镜像里那份 NDK 被删、安装却算在别处的经典误报）。
 - 两者都会在失败时额外上传 `logs/` 工件；`release` 包是 `-unsigned` 的，
   要签名请配好 keystore 后改用 `./build-android.sh sign`（或本地 `--sign`）。
@@ -1732,7 +1739,7 @@ bash scripts/fix-line-endings.sh --check --strict
 | Windows 完整日志       | `build-krita-windows.ps1` 自身同时写控制台与 `C:\krita\dev\logs\win-build-<时间戳>.log`，并维护 `latest.log`                                                              |
 | 工件                 | 两个工作流都在 `always()` 时上传 `*-build-logs-*`（保留 7 天）——失败与成功都留档                                                                                                  |
 | 运行摘要               | 失败时把第一条 `[err]` / `[ERR]` 用 `::error::` 注解，并把日志最后 150–200 行贴进 Summary，无需下载工件即可定位                                                                     |
-| 磁盘监控               | 构建期间**每 30 秒**打印一行 `[disk] HH:MM:SS  <大小> total, <已用> used, <剩余> free (<百分比> used)`：Android 写进同一份 `-all.log`，Windows 写进 `win-build-*.log`（构建开始前先打一行基线）；`KRITA_DISK_MONITOR=0` 关闭，`KRITA_DISK_MONITOR_INTERVAL=N` 改间隔 |
+| 磁盘监控               | 构建期间**每 30 秒**打印一行 `[disk] HH:MM:SS  <大小> total, <已用> used, <剩余> free (<百分比> used)`：Android 写进同一份 `-all.log`，Windows 写进 `win-build-*.log`（构建开始前先打一行基线）；`KRITA_DISK_MONITOR=0` 关闭，`KRITA_DISK_MONITOR_INTERVAL=N` 改间隔，`KRITA_DISK_MONITOR_PATH=DIR` 换监控目录（默认项目根） |
 
 ---
 

@@ -68,22 +68,21 @@ jobs:
     timeout-minutes: 480
     # Job-level env wins over whatever the runner image ships (it preinstalls an
     # Android SDK/NDK and exports ANDROID_HOME / ANDROID_SDK_ROOT /
-    # ANDROID_NDK_ROOT). Everything for this build lives under the workspace so
-    # paths and caches stay predictable. ANDROID_NDK_ROOT points at the NDK
-    # installed by 10-setup-sdk.sh; the scripts ignore it while it does not
-    # exist yet and fall back to <ANDROID_ROOT>/sdk/ndk/<version>.
+    # ANDROID_NDK_ROOT). All build state lives in a sibling of the checkout
+    # (<parent>/krita-ci, i.e. OUTSIDE the workspace). The prepare step
+    # canonicalises these into $GITHUB_ENV; the values here only seed it.
     env:
       # Belt and braces: ANDROID_ROOT plus the scripts' own override
       # (KRITA_ANDROID_ROOT), so nothing inherited can point us elsewhere.
       # ANDROID_NDK / ANDROID_NDK_HOME are overridden as well: the runner image
       # exports them pointing at its own NDK, which the free-disk step deletes.
-      ANDROID_ROOT: ${{ github.workspace }}/.ci/android
-      KRITA_ANDROID_ROOT: ${{ github.workspace }}/.ci/android
-      ANDROID_NDK_ROOT: ${{ github.workspace }}/.ci/android/sdk/ndk/27.3.13750724
-      ANDROID_NDK: ${{ github.workspace }}/.ci/android/sdk/ndk/27.3.13750724
-      ANDROID_NDK_HOME: ${{ github.workspace }}/.ci/android/sdk/ndk/27.3.13750724
-      WORKDIR: ${{ github.workspace }}/.ci/work
-      SRCDIR: ${{ github.workspace }}/.ci/src
+      CI_HOME: ${{ github.workspace }}/../krita-ci
+      ANDROID_ROOT: ${{ github.workspace }}/../krita-ci/android
+      KRITA_ANDROID_ROOT: ${{ github.workspace }}/../krita-ci/android
+      ANDROID_NDK_ROOT: ${{ github.workspace }}/../krita-ci/android/sdk/ndk/27.3.13750724
+      ANDROID_NDK: ${{ github.workspace }}/../krita-ci/android/sdk/ndk/27.3.13750724
+      ANDROID_NDK_HOME: ${{ github.workspace }}/../krita-ci/android/sdk/ndk/27.3.13750724
+      WORKDIR: ${{ github.workspace }}/../krita-ci/work
       KRITA_COPY_TO_DESKTOP: '0'
       KRITA_MIN_FREE_GB: '15'
     steps:
@@ -117,19 +116,55 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Layout expected by the scripts (paths come from the job-level env):
-      #   $SRCDIR/krita  -> the checkout (symlinked, so no second clone)
-      #   $WORKDIR       -> venv, dependency cache, CI work dir
-      #   $ANDROID_ROOT  -> SDK / NDK / downloads
+      # Layout expected by the scripts:
+      #   $SRCDIR       = parent of the checkout (canonical, no "..")
+      #   $SRCDIR/krita = the checkout itself -> no clone, no symlink
+      #   $WORKDIR      = venv / dependency cache / CI work dir (outside repo)
+      #   $ANDROID_ROOT = SDK / NDK / downloads (outside repo)
+      # Everything is written to $GITHUB_ENV in canonical form so later steps
+      # never see a path with ".." or a symlink back into the workspace (that
+      # made CMake's KDE install-dir logic recurse).
       - name: Prepare workspace layout
         run: |
-          mkdir -p "$ANDROID_ROOT" "$WORKDIR" "$SRCDIR"
-          ln -sfn "$GITHUB_WORKSPACE" "$SRCDIR/krita"
-          ls -ld "$SRCDIR/krita"
+          base="$(cd "$GITHUB_WORKSPACE/.." && pwd -P)"
+          CI_HOME="$base/krita-ci"
+          ANDROID_ROOT="$CI_HOME/android"
+          WORKDIR="$CI_HOME/work"
+          NDK="$ANDROID_ROOT/sdk/ndk/27.3.13750724"
+          # The scripts expect the source tree at $SRCDIR/krita, and that path must
+          # be a REAL directory (not a symlink): CMake stores the path it is given
+          # as CMAKE_SOURCE_DIR and, when that differs from its realpath, ECM/KDE
+          # install-dir logic re-joins the difference over and over
+          # (.../.ci/src/krita/.ci/src/krita/...) until CMAKE_INSTALL_PREFIX points
+          # at a directory that does not exist.
+          #
+          # Normally the checkout IS ".../<repo>/<repo>", so "$base/krita" is
+          # already the checkout and nothing happens here. A renamed fork would put
+          # it elsewhere, so relocate the checkout once (the old workspace path is
+          # left behind as a symlink so relative paths in later steps still work).
+          if [[ "$base/krita" != "$GITHUB_WORKSPACE" ]]; then
+            echo "::warning::checkout is not named 'krita'; relocating it to $base/krita so the source tree is a real directory, not a symlink"
+            mv "$GITHUB_WORKSPACE" "$base/krita"
+            ln -sfn "$base/krita" "$GITHUB_WORKSPACE"
+          fi
+          {
+            echo "CI_HOME=$CI_HOME"
+            echo "ANDROID_ROOT=$ANDROID_ROOT"
+            echo "KRITA_ANDROID_ROOT=$ANDROID_ROOT"
+            echo "ANDROID_NDK_ROOT=$NDK"
+            echo "ANDROID_NDK=$NDK"
+            echo "ANDROID_NDK_HOME=$NDK"
+            echo "WORKDIR=$WORKDIR"
+            echo "SRCDIR=$base"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_ROOT" "$WORKDIR"
+          echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
+          echo "SRCDIR=$base"
+          echo "SRCDIR/krita=$base/krita"
           echo "ANDROID_ROOT=$ANDROID_ROOT"
           echo "WORKDIR=$WORKDIR"
-          echo "SRCDIR=$SRCDIR"
-          echo "ANDROID_NDK_ROOT='${ANDROID_NDK_ROOT:-}'"
+          echo "ANDROID_NDK_ROOT=$NDK"
+          test -e "$base/krita/.git"
           java -version
           cmake --version | head -n 1
           ninja --version
@@ -138,20 +173,21 @@ jobs:
       - name: Restore Android SDK / NDK cache
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.ci/android
-          key: local-build-android-sdk-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
+          path: ${{ github.workspace }}/../krita-ci/android
+          key: local-build-android-sdk-v3-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
           restore-keys: |
-            local-build-android-sdk-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+            local-build-android-sdk-v3-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
 
       - name: Restore Python / dependency cache
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/.ci/work/PythonEnv
-            ${{ github.workspace }}/.ci/work/envdir
-          key: local-build-android-deps-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
+            ${{ github.workspace }}/../krita-ci/work/PythonEnv
+            ${{ github.workspace }}/../krita-ci/work/envdir
+            ${{ github.workspace }}/../krita-ci/work/cache
+          key: local-build-android-deps-v3-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
           restore-keys: |
-            local-build-android-deps-v2-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
+            local-build-android-deps-v3-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
 
       - name: Build APK
         working-directory: build-tools/local-build

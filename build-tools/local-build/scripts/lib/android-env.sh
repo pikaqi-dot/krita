@@ -143,6 +143,14 @@ derive_paths() {
     VENVDIR="$(normalize_slashes "$VENVDIR")"
 
     KRITA_SRC="$SRCDIR/krita"
+    # CMake 会把"传进去的路径"当作 CMAKE_SOURCE_DIR。如果这里是符号链接，
+    # 它和 realpath 不一致，ECM/KDE 的安装目录逻辑就会把差值反复拼上去
+    # （.../.ci/src/krita/.ci/src/krita/...），最后 CMAKE_INSTALL_PREFIX
+    # 指向不存在的目录，configure 报 set_property DIRECTORY ... not found。
+    if [[ -L "$KRITA_SRC" ]]; then
+        warn "KRITA_SRC 是符号链接: $KRITA_SRC -> $(readlink -f -- "$KRITA_SRC" 2>/dev/null || echo '?')"
+        warn "  可能导致 CMake 路径递归；建议让 \$SRCDIR/krita 是真实目录（不要用 symlink 挂源码）"
+    fi
     DEPS_MGMT_DIR="$KRITA_SRC/krita-deps-management"
     CI_UTILS_DIR="$DEPS_MGMT_DIR/ci-utilities"
     BUILD_DIR="$KRITA_SRC/_build"
