@@ -1712,6 +1712,9 @@ bash scripts/fix-line-endings.sh --check --strict
   它**复用本次 checkout 作为 Krita 源码**（符号链接挂到 `$SRCDIR/krita`），
   所以打出来的 APK 就是当前提交，而不是另克隆的上游 master；
   SDK/NDK 与 venv/依赖下载分别走 `actions/cache`。
+  SDK/NDK/venv 一律装在 `$GITHUB_WORKSPACE/.ci/`：job 级 `env` 覆盖 runner 镜像预置的
+  `ANDROID_HOME` / `ANDROID_SDK_ROOT` / `ANDROID_NDK_ROOT`，脚本自身也会忽略"指向不存在目录"
+  的 `ANDROID_NDK_ROOT`（否则会出现镜像里那份 NDK 被删、安装却算在别处的经典误报）。
 - 两者都会在失败时额外上传 `logs/` 工件；`release` 包是 `-unsigned` 的，
   要签名请配好 keystore 后改用 `./build-android.sh sign`（或本地 `--sign`）。
 

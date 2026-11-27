@@ -63,6 +63,19 @@ jobs:
     name: Krita APK
     runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 480
+    # Job-level env wins over whatever the runner image ships (it preinstalls an
+    # Android SDK/NDK and exports ANDROID_HOME / ANDROID_SDK_ROOT /
+    # ANDROID_NDK_ROOT). Everything for this build lives under the workspace so
+    # paths and caches stay predictable. ANDROID_NDK_ROOT points at the NDK
+    # installed by 10-setup-sdk.sh; the scripts ignore it while it does not
+    # exist yet and fall back to <ANDROID_ROOT>/sdk/ndk/<version>.
+    env:
+      ANDROID_ROOT: ${{ github.workspace }}/.ci/android
+      ANDROID_NDK_ROOT: ${{ github.workspace }}/.ci/android/sdk/ndk/27.3.13750724
+      WORKDIR: ${{ github.workspace }}/.ci/work
+      SRCDIR: ${{ github.workspace }}/.ci/src
+      KRITA_COPY_TO_DESKTOP: '0'
+      KRITA_MIN_FREE_GB: '15'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,22 +103,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Layout expected by the scripts:
+      # Layout expected by the scripts (paths come from the job-level env):
       #   $SRCDIR/krita  -> the checkout (symlinked, so no second clone)
       #   $WORKDIR       -> venv, dependency cache, CI work dir
       #   $ANDROID_ROOT  -> SDK / NDK / downloads
       - name: Prepare workspace layout
         run: |
-          {
-            echo "ANDROID_ROOT=$HOME/krita-ci/android"
-            echo "WORKDIR=$HOME/krita-ci/work"
-            echo "SRCDIR=$HOME/krita-ci/src"
-            echo "KRITA_COPY_TO_DESKTOP=0"
-            echo "KRITA_MIN_FREE_GB=15"
-          } >> "$GITHUB_ENV"
-          mkdir -p "$HOME/krita-ci/src"
-          ln -sfn "$GITHUB_WORKSPACE" "$HOME/krita-ci/src/krita"
-          ls -ld "$HOME/krita-ci/src/krita"
+          mkdir -p "$ANDROID_ROOT" "$WORKDIR" "$SRCDIR"
+          ln -sfn "$GITHUB_WORKSPACE" "$SRCDIR/krita"
+          ls -ld "$SRCDIR/krita"
+          echo "ANDROID_ROOT=$ANDROID_ROOT"
+          echo "WORKDIR=$WORKDIR"
+          echo "SRCDIR=$SRCDIR"
+          echo "ANDROID_NDK_ROOT='${ANDROID_NDK_ROOT:-}'"
           java -version
           cmake --version | head -n 1
           ninja --version
@@ -114,7 +124,7 @@ jobs:
       - name: Restore Android SDK / NDK cache
         uses: actions/cache@v4
         with:
-          path: ~/krita-ci/android
+          path: ${{ github.workspace }}/.ci/android
           key: local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/10-setup-sdk.sh') }}
           restore-keys: |
             local-build-android-sdk-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
@@ -123,8 +133,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/krita-ci/work/PythonEnv
-            ~/krita-ci/work/envdir
+            ${{ github.workspace }}/.ci/work/PythonEnv
+            ${{ github.workspace }}/.ci/work/envdir
           key: local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-${{ hashFiles('build-tools/local-build/scripts/30-fetch-deps.sh') }}
           restore-keys: |
             local-build-android-deps-${{ runner.os }}-${{ inputs.abi || 'arm64-v8a' }}-
@@ -163,7 +173,7 @@ jobs:
         run: |
           set +e
           mkdir -p logs/diagnostics
-          src="${SRCDIR:-$HOME/krita-ci/src}/krita"
+          src="$SRCDIR/krita"
           {
             echo "===== date ====="; date -u
             echo "===== uname ====="; uname -a
@@ -185,7 +195,7 @@ jobs:
           } > logs/diagnostics/summary.txt 2>&1
 
           for f in \
-            "$HOME/krita-ci/work/base-env" \
+            "$WORKDIR/base-env" \
             "$src/env" \
             "$src/_build/CMakeCache.txt" \
             "$src/_build/CMakeFiles/CMakeOutput.log" \

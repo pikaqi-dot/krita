@@ -99,9 +99,16 @@ resolve_defaults() {
 resolve_ndk_root() {
     local v="$ANDROID_NDK_VERSION"
 
+    # 显式 ANDROID_NDK_ROOT 优先，但必须是"真的 NDK"（含 source.properties）。
+    # 这一点在 CI 上很关键：runner 镜像会预置 ANDROID_NDK_ROOT 指向它自带的
+    # NDK，而本流程把 SDK/NDK 装在自己的 ANDROID_ROOT 下、镜像那份可能已被删除。
+    # 指向不存在的目录时忽略它，避免"装好了却仍报找不到 NDK"。
     if [[ -n "${ANDROID_NDK_ROOT:-}" ]]; then
-        printf '%s\n' "$ANDROID_NDK_ROOT"
-        return 0
+        if [[ -f "$ANDROID_NDK_ROOT/source.properties" ]]; then
+            printf '%s\n' "$ANDROID_NDK_ROOT"
+            return 0
+        fi
+        warn "忽略无效的 ANDROID_NDK_ROOT=$ANDROID_NDK_ROOT（目录里没有 source.properties）"
     fi
 
     local sdk_ndk="$KDECI_ANDROID_SDK_ROOT/ndk/$v"
@@ -148,6 +155,10 @@ derive_paths() {
     CMDLINE_TOOLS_DIR="$ANDROID_ROOT/cmdline-tools"
     KDECI_ANDROID_SDK_ROOT="$ANDROID_ROOT/sdk"
     KDECI_ANDROID_NDK_ROOT="$(resolve_ndk_root)"
+    # 把 export 出去的 ANDROID_NDK_ROOT 对齐到"真正要用的 NDK"：
+    # 环境里残留的无效路径（例如 CI runner 镜像预置的那份）不能继续传给
+    # run-ci-build.py / cmake 工具链。
+    ANDROID_NDK_ROOT="$KDECI_ANDROID_NDK_ROOT"
     ANDROID_HOME="$KDECI_ANDROID_SDK_ROOT"
     ANDROID_SDK_ROOT="$KDECI_ANDROID_SDK_ROOT"
 
