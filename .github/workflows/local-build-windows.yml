@@ -65,8 +65,11 @@ jobs:
             Select-Object NumberOfLogicalProcessors,
                           @{ n = 'RAM_GB'; e = { [math]::Round($_.TotalPhysicalMemory / 1GB, 1) } } |
             Format-List
-          Get-PSDrive C | Select-Object Used, Free
+          Get-PSDrive C | Select-Object @{ n = 'Free_GB'; e = { [math]::Round($_.Free / 1GB, 1) } }
+          $PSVersionTable | Format-List
           git --version
+          Write-Host ('7z: ' + (Get-Command 7z -ErrorAction SilentlyContinue).Source)
+          Write-Host ('NUMBER_OF_PROCESSORS: ' + $env:NUMBER_OF_PROCESSORS)
 
       - name: Restore toolchain / dependency cache
         uses: actions/cache@v4
@@ -140,6 +143,40 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Always surface the tail of the script's own log: the console output of a
+      # 1-3 hour build is long, and the run summary should be enough to diagnose.
+      - name: Build log tail
+        if: always()
+        run: |
+          $log = 'C:\krita\dev\logs\latest.log'
+          if (-not (Test-Path -LiteralPath $log)) {
+            $log = Get-ChildItem 'C:\krita\dev\logs\*.log' -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime | Select-Object -Last 1 -ExpandProperty FullName
+          }
+          if ($log -and (Test-Path -LiteralPath $log)) {
+            Write-Host "--- last 80 lines of $log ---"
+            Get-Content -LiteralPath $log -Tail 80
+            "### Build log tail" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            "``$log``" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            Get-Content -LiteralPath $log -Tail 150 |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } else {
+            Write-Host 'no build log found under C:\krita\dev\logs'
+          }
+
+      - name: Annotate first errors
+        if: failure()
+        run: |
+          $log = 'C:\krita\dev\logs\latest.log'
+          if (Test-Path -LiteralPath $log) {
+            Get-Content -LiteralPath $log |
+              Where-Object { $_ -match '\[ERR\]' } |
+              Select-Object -First 5 |
+              ForEach-Object { Write-Host "::error::$_" }
+          }
+
       - name: Summary
         if: always()
         run: |
@@ -151,4 +188,14 @@ jobs:
           } else {
             'krita.exe was not produced (see the logs artifact)' |
               Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
+          $log = 'C:\krita\dev\logs'
+          if (Test-Path -LiteralPath $log) {
+            '#### Log files' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            Get-ChildItem -LiteralPath $log -File |
+              Select-Object Name, @{ n = 'KB'; e = { [math]::Round($_.Length / 1KB, 1) } } |
+              Format-Table -AutoSize | Out-String |
+              Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+            '```' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
           }

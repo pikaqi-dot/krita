@@ -1714,6 +1714,17 @@ bash scripts/fix-line-endings.sh --check --strict
 - 两者都会在失败时额外上传 `logs/` 工件；`release` 包是 `-unsigned` 的，
   要签名请配好 keystore 后改用 `./build-android.sh sign`（或本地 `--sign`）。
 
+#### 日志（尽量"完备"）
+
+| 场景                 | 内容                                                                                                                                                          |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 控制台                | 脚本每执行一条命令都会先打印 `$ <命令>`，子进程 stdout/stderr 实时透传（`2>&1`），Actions 的步骤日志就是完整原始输出                                                                    |
+| Android 完整日志       | 工作流通过 [`scripts/run.sh`](scripts/run.sh:1) 启动，完整输出 tee 到 `build-tools/local-build/logs/<时间戳>-all.log`，并维护 `logs/latest.log`                              |
+| Android 诊断快照       | `logs/diagnostics/`：`summary.txt`（uname / CPU / 磁盘 / 内存 / 工具版本 / `KRITA_*` 等配置 / git HEAD 与 dirty 列表 / dist 清单）、`env`、`base-env`、`CMakeCache.txt`、`CMakeOutput.log`、`CMakeError.log` |
+| Windows 完整日志       | `build-krita-windows.ps1` 自身同时写控制台与 `C:\krita\dev\logs\win-build-<时间戳>.log`，并维护 `latest.log`                                                              |
+| 工件                 | 两个工作流都在 `always()` 时上传 `*-build-logs-*`（保留 7 天）——失败与成功都留档                                                                                                  |
+| 运行摘要               | 失败时把第一条 `[err]` / `[ERR]` 用 `::error::` 注解，并把日志最后 150–200 行贴进 Summary，无需下载工件即可定位                                                                     |
+
 ---
 
 ## 十一、Linux 桌面版 `.deb`（可选）
